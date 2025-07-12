@@ -38,37 +38,102 @@ async function run() {
     const newsletterSubscribersCollection = client.db('fitFolio').collection('newsletterSubscribers')
 
 
+    // get a user's role
+    app.get('/user/role/:email', async (req, res) => {
+      const email = req.params.email
+      const result = await usersCollection.findOne({ email })
+      if (!result) return res.status(404).send({ message: 'User Not Found.' })
+      res.send({ role: result?.role })
+    })
+
+
     // POST /api/auth/register
     app.post("/register", async (req, res) => {
       const { name, email, photoURL } = req.body;
       try {
-        const db = client.db("fitfolio"); // replace with your DB name
-        const usersCollection = db.collection("users");
-
-        const existingUser = await usersCollection.findOne({ email });
-        if (existingUser) {
-          return res.status(409).json({ message: "User already exists" });
-        }
+        const userEmail = email.toLowerCase();
+        const existingUser = await usersCollection.findOne({ email: userEmail });
 
         const newUser = {
           name,
-          email,
+          email: userEmail,
           photoURL,
           role: "member",
-          createdAt: new Date(),
+          createdAt: new Date().toISOString(),
+          last_loggedin: new Date().toISOString(),
         };
 
-        await usersCollection.insertOne(newUser);
-        res.status(201).json({ message: "User registered", user: newUser });
+
+        if (existingUser) {
+          // Update last login time if user exists
+          await usersCollection.updateOne(
+            { email: userEmail },
+            { $set: { last_loggedin: new Date().toISOString() } }
+          );
+          return res.status(200).send({ message: 'User already exists', user: existingUser });
+        }
+
+
+        const result = await usersCollection.insertOne(newUser);
+        res.status(201).send({ message: "User registered", user: newUser });
       } catch (error) {
         console.error("Registration Error:", error);
-        res.status(500).json({ message: "Registration error", error: error.message });
+        res.status(500).send({ message: "Registration error", error: error.message });
       }
     });
 
 
 
-    // Send a ping to confirm a successful connection
+    app.post('/social-login', async (req, res) => {
+      try {
+        const { name, email, photoURL } = req.body;
+
+        if (!email) {
+          return res.status(400).send({ message: 'Email is required' });
+        }
+
+        const userEmail = email.toLowerCase();
+        const existingUser = await usersCollection.findOne({ email: userEmail });
+
+        // New user
+        const newUser = {
+          name,
+          email: userEmail,
+          photoURL,
+          role: 'member',
+          createdAt: new Date().toISOString(),
+          last_loggedin: new Date().toISOString(),
+        };
+
+        if (existingUser) {
+          // Update last login time if user exists
+          await usersCollection.updateOne(
+            { email: userEmail },
+            { $set: { last_loggedin: new Date().toISOString() } }
+          );
+          return res.status(200).send({ message: 'User already exists', user: existingUser });
+        }
+
+
+
+        const insertResult = await usersCollection.insertOne(newUser);
+
+        if (insertResult.insertedId) {
+          return res.status(201).send({ message: 'User created successfully', user: newUser });
+        } else {
+          throw new Error('Failed to create user');
+        }
+      } catch (error) {
+        console.error('Error in /social-login:', error);
+        res.status(500).send({ message: 'Internal server error', error: error.message });
+      }
+    });
+
+
+
+
+
+    // json a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
     // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
@@ -80,7 +145,7 @@ run().catch(console.dir);
 
 
 app.get('/', (req, res) => {
-  res.send('FitFolio is running')
+  res.json('FitFolio is running')
 })
 
 app.listen(port, () => {
