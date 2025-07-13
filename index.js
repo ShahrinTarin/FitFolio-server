@@ -208,38 +208,38 @@ async function run() {
 
 
     // POST /newsletter/subscribe
-    // app.post('/newsletter/subscribe', async (req, res) => {
-    //   try {
-    //     const { name, email } = req.body;
+    app.post('/newsletter/subscribe', async (req, res) => {
+      try {
+        const { name, email } = req.body;
 
-    //     if (!name || !email) {
-    //       return res.status(400).send({ message: "Name and Email are required." });
-    //     }
+        if (!name || !email) {
+          return res.status(400).send({ message: "Name and Email are required." });
+        }
 
-    //     const existing = await newsletterSubscribersCollection.findOne({ email: email.toLowerCase() });
+        const existing = await newsletterSubscribersCollection.findOne({ email: email.toLowerCase() });
 
-    //     if (existing) {
-    //       return res.status(409).send({ message: "You are already subscribed." });
-    //     }
+        if (existing) {
+          return res.status(409).send({ message: "You are already subscribed." });
+        }
 
-    //     const subscriber = {
-    //       name,
-    //       email: email.toLowerCase(),
-    //       subscribedAt: new Date().toISOString(),
-    //     };
+        const subscriber = {
+          name,
+          email: email.toLowerCase(),
+          subscribedAt: new Date().toISOString(),
+        };
 
-    //     const result = await newsletterSubscribersCollection.insertOne(subscriber);
+        const result = await newsletterSubscribersCollection.insertOne(subscriber);
 
-    //     if (result.insertedId) {
-    //       res.status(201).send({ message: "Subscription successful!" });
-    //     } else {
-    //       res.status(500).send({ message: "Failed to subscribe. Please try again." });
-    //     }
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).send({ message: "Internal server error", error: error.message });
-    //   }
-    // });
+        if (result.insertedId) {
+          res.status(201).send({ message: "Subscription successful!" });
+        } else {
+          res.status(500).send({ message: "Failed to subscribe. Please try again." });
+        }
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Internal server error", error: error.message });
+      }
+    });
 
 
 
