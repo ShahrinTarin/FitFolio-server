@@ -7,7 +7,10 @@ const { MongoClient, ServerApiVersion } = require('mongodb');
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true,
+}));
 app.use(express.json())
 
 
@@ -44,6 +47,22 @@ async function run() {
       const result = await usersCollection.findOne({ email })
       if (!result) return res.status(404).send({ message: 'User Not Found.' })
       res.send({ role: result?.role })
+    })
+
+
+
+    // generate jwt
+    app.post('/jwt', (req, res) => {
+      const user = { email: req.body.email }
+      const token = jwt.sign(user, process.env.JWT_SECRET_KEY, {
+        expiresIn: '7d'
+      })
+      res.send({ token, message: 'jwt created successfully' })
+      // res.cookie('token', token, {
+      //   httpOnly: true,
+      //   secure: false,
+      // }).send({ message: 'jwt created successfully' })
+
     })
 
 
