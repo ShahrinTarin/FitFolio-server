@@ -88,6 +88,18 @@ async function run() {
     })
 
 
+    // Get all trainer applications (Admin only)
+    app.get('/trainer/applications', verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const applications = await trainerApplicationsCollection.find().toArray();
+        res.status(200).send(applications);
+      } catch (error) {
+        console.error('Failed to fetch trainer applications:', error);
+        res.status(500).send({ message: 'Internal Server Error', error: error.message });
+      }
+    });
+
+
     // GET all newsletter subscribers (Admin only)
     app.get('/newsletter/all', verifyJWT, verifyAdmin, async (req, res) => {
       try {
