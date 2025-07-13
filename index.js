@@ -35,7 +35,7 @@ const verifyJWT = async (req, res, next) => {
       console.log(err)
       return res.status(401).send({ message: 'Unauthorized Access!' })
     }
-     req.decoded = decoded;
+    req.decoded = decoded;
     next()
   })
 }
@@ -68,7 +68,7 @@ async function run() {
       next();
     }
 
-    const verifyTrainer= async (req, res, next) => {
+    const verifyTrainer = async (req, res, next) => {
       const email = req.decoded.email;
       const query = { email }
       const user = await usersCollection.findOne(query);
@@ -182,6 +182,64 @@ async function run() {
     });
 
 
+    // Apply to be a Trainer
+    app.post('/trainer/apply', verifyJWT, async (req, res) => {
+      try {
+        const application = req.body;
+
+        // add secure info
+        application.status = 'pending';
+        application.appliedAt = new Date().toISOString();
+        application.email = req.decoded.email; // take from verified JWT
+
+        // prevent duplicate apply
+        const alreadyApplied = await trainerApplicationsCollection.findOne({ email: application.email });
+        if (alreadyApplied) {
+          return res.status(400).send({ message: 'Already applied!' });
+        }
+
+        const result = await trainerApplicationsCollection.insertOne(application);
+        res.status(201).send({ message: 'Application submitted', result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Failed to apply', error: err.message });
+      }
+    });
+
+
+    // POST /newsletter/subscribe
+    // app.post('/newsletter/subscribe', async (req, res) => {
+    //   try {
+    //     const { name, email } = req.body;
+
+    //     if (!name || !email) {
+    //       return res.status(400).send({ message: "Name and Email are required." });
+    //     }
+
+    //     const existing = await newsletterSubscribersCollection.findOne({ email: email.toLowerCase() });
+
+    //     if (existing) {
+    //       return res.status(409).send({ message: "You are already subscribed." });
+    //     }
+
+    //     const subscriber = {
+    //       name,
+    //       email: email.toLowerCase(),
+    //       subscribedAt: new Date().toISOString(),
+    //     };
+
+    //     const result = await newsletterSubscribersCollection.insertOne(subscriber);
+
+    //     if (result.insertedId) {
+    //       res.status(201).send({ message: "Subscription successful!" });
+    //     } else {
+    //       res.status(500).send({ message: "Failed to subscribe. Please try again." });
+    //     }
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).send({ message: "Internal server error", error: error.message });
+    //   }
+    // });
 
 
 
