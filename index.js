@@ -25,6 +25,23 @@ const client = new MongoClient(uri, {
   }
 });
 
+
+
+const verifyJWT = async (req, res, next) => {
+  const token = req?.headers?.authorization?.split(' ')[1]
+  if (!token) return res.status(401).send({ message: 'Unauthorized Access!' })
+  jwt.verify(token, process.env.JWT_SECRET_KEY, (err, decoded) => {
+    if (err) {
+      console.log(err)
+      return res.status(401).send({ message: 'Unauthorized Access!' })
+    }
+     req.decoded = decoded;
+    next()
+  })
+}
+
+
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -39,6 +56,27 @@ async function run() {
     const forumsCollection = client.db('fitFolio').collection('forums')
     const reviewsCollection = client.db('fitFolio').collection('reviews')
     const newsletterSubscribersCollection = client.db('fitFolio').collection('newsletterSubscribers')
+
+
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email }
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+      next();
+    }
+
+    const verifyTrainer= async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email }
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== 'trainer') {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+      next();
+    }
 
 
     // get a user's role
@@ -58,11 +96,6 @@ async function run() {
         expiresIn: '7d'
       })
       res.send({ token, message: 'jwt created successfully' })
-      // res.cookie('token', token, {
-      //   httpOnly: true,
-      //   secure: false,
-      // }).send({ message: 'jwt created successfully' })
-
     })
 
 
