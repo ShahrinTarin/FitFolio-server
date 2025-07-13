@@ -88,6 +88,18 @@ async function run() {
     })
 
 
+    // GET all newsletter subscribers (Admin only)
+    app.get('/newsletter/all', verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const subscribers = await newsletterSubscribersCollection.find().toArray();
+        res.status(200).send(subscribers);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Failed to fetch subscribers', error: err.message });
+      }
+    });
+
+
 
     // generate jwt
     app.post('/jwt', (req, res) => {
