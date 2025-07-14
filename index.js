@@ -2,7 +2,7 @@ require('dotenv').config()
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken')
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -91,13 +91,26 @@ async function run() {
     // Get all trainer applications (Admin only)
     app.get('/trainer/applications', verifyJWT, verifyAdmin, async (req, res) => {
       try {
-        const applications = await trainerApplicationsCollection.find().toArray();
+        // only fetch pending applications
+        const applications = await trainerApplicationsCollection.find({ status: 'pending' }).toArray();
         res.status(200).send(applications);
       } catch (error) {
         console.error('Failed to fetch trainer applications:', error);
         res.status(500).send({ message: 'Internal Server Error', error: error.message });
       }
     });
+
+
+    // GET: All trainers
+    app.get('/users/trainers', verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const trainers = await usersCollection.find({ role: 'trainer' }).toArray();
+        res.status(200).send(trainers);
+      } catch (err) {
+        res.status(500).send({ message: 'Failed to fetch trainers', error: err.message });
+      }
+    });
+
 
 
     // GET all newsletter subscribers (Admin only)
@@ -211,12 +224,11 @@ async function run() {
       try {
         const application = req.body;
 
-        // add secure info
+        // Add backend-controlled fields
         application.status = 'pending';
         application.appliedAt = new Date().toISOString();
-        application.email = req.decoded.email; // take from verified JWT
 
-        // prevent duplicate apply
+        // Prevent duplicate applications for the same email
         const alreadyApplied = await trainerApplicationsCollection.findOne({ email: application.email });
         if (alreadyApplied) {
           return res.status(400).send({ message: 'Already applied!' });
@@ -229,6 +241,7 @@ async function run() {
         res.status(500).send({ message: 'Failed to apply', error: err.message });
       }
     });
+
 
 
     // POST /newsletter/subscribe
@@ -263,6 +276,111 @@ async function run() {
         console.error(error);
         res.status(500).send({ message: "Internal server error", error: error.message });
       }
+    });
+
+
+
+    // POST /classes - Add a new class (Admin only)
+    app.post('/classes', verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const { name, image, details, extraInfo } = req.body;
+
+        if (!name || !image || !details) {
+          return res.status(400).json({ message: 'Name, image, and details are required' });
+        }
+
+        const newClass = {
+          name,
+          image,
+          details,
+          extraInfo: extraInfo || '',
+          bookingCount: 0,  // initialize booking count to zero
+          createdAt: new Date().toISOString(),
+        };
+
+        const result = await classesCollection.insertOne(newClass);
+
+        if (result.insertedId) {
+          res.status(201).json({ message: 'Class created successfully', insertedId: result.insertedId });
+        } else {
+          res.status(500).json({ message: 'Failed to create class' });
+        }
+      } catch (error) {
+        console.error('Error creating class:', error);
+        res.status(500).json({ message: 'Internal server error', error: error.message });
+      }
+    });
+
+
+
+    // PATCH /trainer/applications/:id/approve
+    app.patch('/trainer/applications/:id/approve', verifyJWT, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const filter = { _id: new ObjectId(id) };
+
+        // Update application status
+        const updateResult = await trainerApplicationsCollection.updateOne(filter, {
+          $set: { status: 'approved' },
+        });
+
+        // Promote user to 'trainer' role
+        const application = await trainerApplicationsCollection.findOne(filter);
+        if (application?.email) {
+          await usersCollection.updateOne(
+            { email: application.email },
+            { $set: { role: 'trainer' } }
+          );
+        }
+
+        res.status(200).send({ message: 'Trainer approved', updateResult });
+      } catch (err) {
+        console.error('Approve Error:', err);
+        res.status(500).send({ message: 'Failed to approve', error: err.message });
+      }
+    });
+
+
+    // PATCH /trainer/applications/:id/reject
+    app.patch('/trainer/applications/:id/reject', verifyJWT, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+      const { feedback } = req.body;
+
+      try {
+        const filter = { _id: new ObjectId(id) };
+        const update = {
+          $set: {
+            status: 'rejected',
+            feedback: feedback || '',
+            rejectedAt: new Date().toISOString(),
+          },
+        };
+
+        const result = await trainerApplicationsCollection.updateOne(filter, update);
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ message: 'Application not found or already rejected.' });
+        }
+
+        res.status(200).send({ message: 'Application rejected successfully', result });
+      } catch (err) {
+        console.error('Reject Error:', err);
+        res.status(500).send({ message: 'Failed to reject application', error: err.message });
+      }
+    });
+
+
+
+
+    // Remove trainer role (set to member)
+    app.patch('/users/remove-trainer/:id', verifyJWT, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+      const result = await usersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role: 'member' } }
+      );
+      res.send(result);
     });
 
 
