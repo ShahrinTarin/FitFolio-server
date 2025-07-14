@@ -8,7 +8,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'http://localhost:5174',
   credentials: true,
 }));
 app.use(express.json())
@@ -50,8 +50,8 @@ async function run() {
     const trainersCollection = client.db('fitFolio').collection('trainers')
     const trainerApplicationsCollection = client.db('fitFolio').collection('trainerApplications')
     const classesCollection = client.db('fitFolio').collection('classes')
-    const slotsCollection = client.db('fitFolio').collection('slots')
-    const bookingsCollection = client.db('fitFolio').collection('bookings')
+    // const slotsCollection = client.db('fitFolio').collection('slots')
+    // const bookingsCollection = client.db('fitFolio').collection('bookings')
     const paymentsCollection = client.db('fitFolio').collection('payments')
     const forumsCollection = client.db('fitFolio').collection('forums')
     const reviewsCollection = client.db('fitFolio').collection('reviews')
@@ -88,6 +88,34 @@ async function run() {
     })
 
 
+
+    // Combined Activity Log: Pending (from trainerApplications) + Rejected (from trainers)
+    app.get('/trainer/applications/activity-log', verifyJWT, async (req, res) => {
+      try {
+        // 1. Get pending applications from trainerApplicationsCollection
+        const pending = await trainerApplicationsCollection
+          .find({ status: 'pending' })
+          .project({ fullName: 1, email: 1, status: 1, appliedAt: 1 })
+          .toArray();
+
+        // 2. Get rejected trainers from trainersCollection (includes feedback)
+        const rejected = await trainerApplicationsCollection
+          .find({ status: 'rejected' })
+          .project({ fullName: 1, email: 1, status: 1, feedback: 1, rejectedAt: 1 })
+          .toArray();
+
+        const combined = [...pending, ...rejected];
+        res.status(200).send(combined);
+      } catch (error) {
+        console.error('Error fetching activity log:', error);
+        res.status(500).send({ message: 'Failed to fetch activity log', error: error.message });
+      }
+    });
+
+
+
+
+
     // Get all trainer applications (Admin only)
     app.get('/trainer/applications', verifyJWT, verifyAdmin, async (req, res) => {
       try {
@@ -99,6 +127,32 @@ async function run() {
         res.status(500).send({ message: 'Internal Server Error', error: error.message });
       }
     });
+
+
+    // GET: Approved trainers only (Public)
+    app.get('/trainers/approved', async (req, res) => {
+      try {
+        const approvedTrainers = await trainersCollection.find({ status: 'approved' }).toArray();
+        res.status(200).send(approvedTrainers);
+      } catch (error) {
+        console.error('Error fetching approved trainers:', error);
+        res.status(500).send({ message: 'Internal Server Error', error: error.message });
+      }
+    });
+
+
+    app.get('/trainerdetails/:id', async (req, res) => {
+      const id = req.params.id;
+      try {
+        const trainer = await trainersCollection.findOne({ _id: new ObjectId(id) });
+        if (!trainer) return res.status(404).send({ message: 'Trainer not found' });
+        res.send(trainer);
+      } catch (error) {
+        res.status(500).send({ message: 'Error fetching trainer', error: error.message });
+      }
+    });
+
+
 
 
     // GET: All trainers
@@ -320,18 +374,43 @@ async function run() {
       try {
         const filter = { _id: new ObjectId(id) };
 
-        // Update application status
+        // 1. Update application status
         const updateResult = await trainerApplicationsCollection.updateOne(filter, {
           $set: { status: 'approved' },
         });
 
-        // Promote user to 'trainer' role
+        // 2. Get the application details
         const application = await trainerApplicationsCollection.findOne(filter);
+
+        // 3. Promote user to trainer role
         if (application?.email) {
           await usersCollection.updateOne(
             { email: application.email },
             { $set: { role: 'trainer' } }
           );
+        }
+
+        // 4. Insert into trainers collection
+        const alreadyExists = await trainersCollection.findOne({ email: application.email });
+        if (!alreadyExists) {
+
+          const trainerData = {
+            fullName: application.fullName || '',
+            email: application.email || '',
+            age: parseInt(application.age) || 0,
+            experience: parseInt(application.experience) || 0,
+            profileImage: application.profileImage || '',
+            skills: Array.isArray(application.skills) ? application.skills : [],
+            availableDays: Array.isArray(application.availableDays) ? application.availableDays : [],
+            availableTime: application.availableTime || '',
+            otherInfo: application.otherInfo || '',
+            facebook: application.facebook || '',
+            linkedin: application.linkedin || '',
+            status: 'approved',
+            appliedAt: application.appliedAt || new Date().toISOString(),
+          };
+
+          await trainersCollection.insertOne(trainerData);
         }
 
         res.status(200).send({ message: 'Trainer approved', updateResult });
@@ -340,6 +419,7 @@ async function run() {
         res.status(500).send({ message: 'Failed to approve', error: err.message });
       }
     });
+
 
 
     // PATCH /trainer/applications/:id/reject
@@ -373,14 +453,33 @@ async function run() {
 
 
 
-    // Remove trainer role (set to member)
+    // Remove Trainer Role and Delete from Trainers Collection
     app.patch('/users/remove-trainer/:id', verifyJWT, verifyAdmin, async (req, res) => {
       const { id } = req.params;
-      const result = await usersCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { role: 'member' } }
-      );
-      res.send(result);
+
+      try {
+        // 1. Find the user by ID
+        const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+        if (!user) return res.status(404).send({ message: 'User not found' });
+
+        // 2. Update user role to 'member'
+        const userUpdate = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role: 'member' } }
+        );
+
+        // 3. Delete from trainers collection using email
+        const trainerDelete = await trainerApplicationsCollection.deleteOne({ email: user.email });
+
+        res.status(200).send({
+          message: 'Trainer role removed and trainer deleted successfully.',
+          userUpdate,
+          trainerDelete,
+        });
+      } catch (err) {
+        console.error('Remove Trainer Error:', err);
+        res.status(500).send({ message: 'Failed to remove trainer', error: err.message });
+      }
     });
 
 
