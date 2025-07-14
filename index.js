@@ -114,8 +114,6 @@ async function run() {
 
 
 
-
-
     // Get all trainer applications (Admin only)
     app.get('/trainer/applications', verifyJWT, verifyAdmin, async (req, res) => {
       try {
