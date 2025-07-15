@@ -8,7 +8,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: 'http://localhost:5175',
+  origin: 'http://localhost:5174',
   credentials: true,
 }));
 app.use(express.json())
@@ -154,6 +154,17 @@ async function run() {
         const trainer = await trainersCollection.findOne({ _id: new ObjectId(id) });
         if (!trainer) return res.status(404).send({ message: 'Trainer not found' });
         res.send(trainer);
+      } catch (error) {
+        res.status(500).send({ message: 'Error fetching trainer', error: error.message });
+      }
+    });
+
+    app.get('/trainer/details/:email',verifyJWT,verifyTrainer, async (req, res) => {
+      const email = req.params.email;
+      try {
+        const trainer = await trainersCollection.findOne({ email });
+        res.send(trainer);
+        if (!trainer) return res.status(404).send({ message: 'Trainer not found' });
       } catch (error) {
         res.status(500).send({ message: 'Error fetching trainer', error: error.message });
       }
@@ -420,7 +431,7 @@ async function run() {
             age: parseInt(application.age) || 0,
             experience: parseInt(application.experience) || 0,
             profileImage: application.profileImage || '',
-            slotName:application.slotName || '' ,
+            slotName: application.slotName || '',
             skills: Array.isArray(application.skills) ? application.skills : [],
             availableDays: Array.isArray(application.availableDays) ? application.availableDays : [],
             availableTime: application.availableTime || '',
