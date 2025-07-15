@@ -8,7 +8,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: 'http://localhost:5174',
+  origin: 'http://localhost:5175',
   credentials: true,
 }));
 app.use(express.json())
@@ -50,8 +50,8 @@ async function run() {
     const trainersCollection = client.db('fitFolio').collection('trainers')
     const trainerApplicationsCollection = client.db('fitFolio').collection('trainerApplications')
     const classesCollection = client.db('fitFolio').collection('classes')
-    // const slotsCollection = client.db('fitFolio').collection('slots')
-    // const bookingsCollection = client.db('fitFolio').collection('bookings')
+    const slotsCollection = client.db('fitFolio').collection('slots')
+    const bookingsCollection = client.db('fitFolio').collection('bookings')
     const paymentsCollection = client.db('fitFolio').collection('payments')
     const forumsCollection = client.db('fitFolio').collection('forums')
     const reviewsCollection = client.db('fitFolio').collection('reviews')
@@ -111,6 +111,15 @@ async function run() {
         res.status(500).send({ message: 'Failed to fetch activity log', error: error.message });
       }
     });
+
+
+
+    app.get('/slots/:trainerEmail', async (req, res) => {
+      const { trainerEmail } = req.params;
+      const slots = await slotsCollection.find({ trainerEmail }).toArray();
+      res.send(slots);
+    });
+
 
 
 
@@ -364,6 +373,19 @@ async function run() {
     });
 
 
+    // GET all classes (public)
+    app.get('/classes', async (req, res) => {
+      try {
+        const classes = await classesCollection.find().toArray();
+        res.status(200).send(classes);
+      } catch (error) {
+        console.error('Failed to fetch classes:', error);
+        res.status(500).send({ message: 'Internal server error', error: error.message });
+      }
+    });
+
+
+
 
     // PATCH /trainer/applications/:id/approve
     app.patch('/trainer/applications/:id/approve', verifyJWT, verifyAdmin, async (req, res) => {
@@ -398,6 +420,7 @@ async function run() {
             age: parseInt(application.age) || 0,
             experience: parseInt(application.experience) || 0,
             profileImage: application.profileImage || '',
+            slotName:application.slotName || '' ,
             skills: Array.isArray(application.skills) ? application.skills : [],
             availableDays: Array.isArray(application.availableDays) ? application.availableDays : [],
             availableTime: application.availableTime || '',
@@ -450,6 +473,56 @@ async function run() {
 
 
 
+    app.post('/add-slot', verifyJWT, verifyTrainer, async (req, res) => {
+      try {
+        const { email, slotName, slotTime, days, classId, otherInfo } = req.body;
+
+        if (!email || !slotName || !slotTime || !days?.length || !classId) {
+          return res.status(400).send({ message: 'Missing required fields.' });
+        }
+
+        // Get trainer details
+        const trainer = await trainersCollection.findOne({ email });
+        if (!trainer) {
+          return res.status(404).send({ message: 'Trainer not found' });
+        }
+
+        // Get class details from classes collection
+        const classData = await classesCollection.findOne({ _id: new ObjectId(classId) });
+        if (!classData) {
+          return res.status(404).send({ message: 'Class not found' });
+        }
+
+        // Create slot document
+        const slot = {
+          trainerId: trainer._id,
+          trainerEmail: trainer.email,
+          trainerName: trainer.fullName,
+          days,
+          slotName,
+          slotTime,
+          classId: classData._id,
+          className: classData.name, // <-- save class name here
+          otherInfo: otherInfo || '',
+          isBooked: false,
+          createdAt: new Date().toISOString(),
+        };
+
+        const result = await slotsCollection.insertOne(slot);
+
+        if (result.insertedId) {
+          res.status(201).send({ message: 'Slot added successfully', insertedId: result.insertedId });
+        } else {
+          res.status(500).send({ message: 'Failed to add slot' });
+        }
+      } catch (error) {
+        console.error('Error in /add-slot:', error);
+        res.status(500).send({ message: 'Internal server error', error: error.message });
+      }
+    });
+
+
+
 
     // Remove Trainer Role and Delete from Trainers Collection
     app.patch('/users/remove-trainer/:id', verifyJWT, verifyAdmin, async (req, res) => {
@@ -478,6 +551,13 @@ async function run() {
         console.error('Remove Trainer Error:', err);
         res.status(500).send({ message: 'Failed to remove trainer', error: err.message });
       }
+    });
+
+
+    app.delete('/slot/:id', async (req, res) => {
+      const id = req.params.id;
+      const result = await slotsCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
     });
 
 
