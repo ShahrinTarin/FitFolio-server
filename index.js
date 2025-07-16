@@ -2,13 +2,14 @@ require('dotenv').config()
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken')
+const stripe = require('stripe')(process.env.STRIPE_SK_KEY)
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors({
-   origin: ['http://localhost:5173', 'http://localhost:5174'],
+  origin: ['http://localhost:5173', 'http://localhost:5174'],
   credentials: true,
   optionSuccessStatus: 200,
 }));
@@ -53,7 +54,7 @@ async function run() {
     const classesCollection = client.db('fitFolio').collection('classes')
     const slotsCollection = client.db('fitFolio').collection('slots')
     const bookingsCollection = client.db('fitFolio').collection('bookings')
-    const paymentsCollection = client.db('fitFolio').collection('payments')
+    const ordersCollection = client.db('fitFolio').collection('orders')
     const forumsCollection = client.db('fitFolio').collection('forums')
     const reviewsCollection = client.db('fitFolio').collection('reviews')
     const newsletterSubscribersCollection = client.db('fitFolio').collection('newsletterSubscribers')
@@ -114,8 +115,19 @@ async function run() {
     });
 
 
+    app.get('/slots', async (req, res) => {
+      try {
+        const allSlots = await slotsCollection.find().toArray();
+        res.status(200).send(allSlots);
+      } catch (error) {
+        console.error('Failed to fetch slots:', error);
+        res.status(500).send({ message: 'Internal Server Error', error: error.message });
+      }
+    });
 
-    app.get('/slots/:trainerEmail', async (req, res) => {
+
+
+    app.get('/slots/:trainerEmail', verifyJWT, verifyTrainer, async (req, res) => {
       const { trainerEmail } = req.params;
       const slots = await slotsCollection.find({ trainerEmail }).toArray();
       res.send(slots);
@@ -160,7 +172,7 @@ async function run() {
       }
     });
 
-    app.get('/trainer/details/:email',verifyJWT,verifyTrainer, async (req, res) => {
+    app.get('/trainer/details/:email', verifyJWT, verifyTrainer, async (req, res) => {
       const email = req.params.email;
       try {
         const trainer = await trainersCollection.findOne({ email });
@@ -398,7 +410,6 @@ async function run() {
 
 
 
-
     // PATCH /trainer/applications/:id/approve
     app.patch('/trainer/applications/:id/approve', verifyJWT, verifyAdmin, async (req, res) => {
       const { id } = req.params;
@@ -484,7 +495,6 @@ async function run() {
     });
 
 
-
     app.post('/add-slot', verifyJWT, verifyTrainer, async (req, res) => {
       try {
         const { email, slotName, slotTime, days, classId, otherInfo } = req.body;
@@ -499,13 +509,13 @@ async function run() {
           return res.status(404).send({ message: 'Trainer not found' });
         }
 
-        // Get class details from classes collection
+        // Get class details
         const classData = await classesCollection.findOne({ _id: new ObjectId(classId) });
         if (!classData) {
           return res.status(404).send({ message: 'Class not found' });
         }
 
-        // Create slot document
+        // Create slot object
         const slot = {
           trainerId: trainer._id,
           trainerEmail: trainer.email,
@@ -514,7 +524,7 @@ async function run() {
           slotName,
           slotTime,
           classId: classData._id,
-          className: classData.name, // <-- save class name here
+          className: classData.name,
           otherInfo: otherInfo || '',
           isBooked: false,
           createdAt: new Date().toISOString(),
@@ -523,6 +533,18 @@ async function run() {
         const result = await slotsCollection.insertOne(slot);
 
         if (result.insertedId) {
+          //  Only push slotId and classId into trainer doc
+          await trainersCollection.updateOne(
+            { _id: trainer._id },
+            {
+              $push: {
+                slots: {
+                  slotId: result.insertedId
+                }
+              }
+            }
+          );
+
           res.status(201).send({ message: 'Slot added successfully', insertedId: result.insertedId });
         } else {
           res.status(500).send({ message: 'Failed to add slot' });
@@ -532,7 +554,6 @@ async function run() {
         res.status(500).send({ message: 'Internal server error', error: error.message });
       }
     });
-
 
 
 
@@ -564,6 +585,68 @@ async function run() {
         res.status(500).send({ message: 'Failed to remove trainer', error: err.message });
       }
     });
+
+
+
+    // create payment intent for order
+    app.post('/create-payment-intent', async (req, res) => {
+      const { price } = req.body
+
+      const totalPrice = price * 100
+      // stripe...
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: totalPrice,
+        currency: 'usd',
+        automatic_payment_methods: {
+          enabled: true,
+        },
+      })
+
+      res.send({ clientSecret: paymentIntent.client_secret })
+    })
+
+
+
+    app.post('/order', async (req, res) => {
+      try {
+        const orderData = req.body;
+
+        // Insert into orders collection
+        const result = await ordersCollection.insertOne(orderData);
+
+        //  Update bookingCount in class
+        const classUpdate = await classesCollection.updateOne(
+          { _id: new ObjectId(orderData.classId) },
+          { $inc: { bookingCount: 1 } }
+        );
+
+        //  Mark the slot as booked
+        const slotUpdate = await slotsCollection.updateOne(
+          { _id: new ObjectId(orderData.slotId) },
+          {
+            $set: {
+              isBooked: true,
+              bookedBy: {
+                email: orderData.userEmail,
+                transactionId: orderData.transactionId,
+                paidAt: orderData.paidAt
+              }
+            }
+          }
+        );
+
+        res.send({
+          insertedId: result.insertedId,
+          classUpdate,
+          slotUpdate,
+          message: 'Order placed and class/slot updated successfully'
+        });
+      } catch (error) {
+        console.error('Error placing order:', error);
+        res.status(500).send({ message: 'Failed to place order', error: error.message });
+      }
+    });
+
 
 
     app.delete('/slot/:id', async (req, res) => {
