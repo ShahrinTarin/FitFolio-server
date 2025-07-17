@@ -80,7 +80,7 @@ async function run() {
     }
 
 
-    app.get('/admin/booking-summary', async (req, res) => {
+    app.get('/admin/booking-summary', verifyJWT, verifyAdmin, async (req, res) => {
       try {
         const payments = await bookingsCollection.find().sort({ createdAt: -1 }).toArray();
         const totalBalance = payments.reduce((sum, p) => sum + p.price, 0);
@@ -91,6 +91,18 @@ async function run() {
       }
     });
 
+
+
+    // GET all classes (public)
+    app.get('/classes', async (req, res) => {
+      try {
+        const classes = await classesCollection.find().toArray();
+        res.status(200).send(classes);
+      } catch (error) {
+        console.error('Failed to fetch classes:', error);
+        res.status(500).send({ message: 'Internal server error', error: error.message });
+      }
+    });
 
 
     // GET all newsletter subscribers (Admin only)
@@ -105,7 +117,7 @@ async function run() {
     });
 
 
-    app.get('/admin/overview-counts', async (req, res) => {
+    app.get('/admin/overview-counts', verifyJWT, verifyAdmin, async (req, res) => {
       try {
         // Get subscriber count (optimized)
         const subscriberCount = await newsletterSubscribersCollection.countDocuments({});
@@ -115,11 +127,11 @@ async function run() {
           {
             $group: {
               _id: "$userEmail",
-              count: { $sum: 1 } 
+              count: { $sum: 1 }
             }
           },
           {
-            $count: "totalMembers" 
+            $count: "totalMembers"
           }
         ]).toArray();
 
@@ -156,6 +168,7 @@ async function run() {
       res.send({ role: result?.role })
     })
 
+
     // Route to get trainers by class name
     app.get('/trainers-by-class/:className', async (req, res) => {
       const className = req.params.className;
@@ -183,21 +196,30 @@ async function run() {
 
 
 
-
-    // GET /classes?page=1&limit=6
+    // GET /class?page=1&limit=6&search=keyword
     app.get('/class', async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 6;
         const skip = (page - 1) * limit;
+        const search = req.query.search || '';
 
-        const classes = await classesCollection.find()
+        // Build query object
+        let query = {};
+        if (search) {
+          query = {
+            name: { $regex: search, $options: 'i' }
+          };
+        }
+
+        // Get total count for pagination
+        const total = await classesCollection.countDocuments(query);
+
+        // Get filtered and paginated classes
+        const classes = await classesCollection.find(query)
           .skip(skip)
           .limit(limit)
           .toArray();
-
-        // Optional: include total count
-        const total = await classesCollection.estimatedDocumentCount();
 
         res.send({ classes, total });
       } catch (err) {
@@ -317,8 +339,6 @@ async function run() {
     });
 
 
-
-
     // GET: All trainers
     app.get('/users/trainers', verifyJWT, verifyAdmin, async (req, res) => {
       try {
@@ -328,7 +348,6 @@ async function run() {
         res.status(500).send({ message: 'Failed to fetch trainers', error: err.message });
       }
     });
-
 
 
     // generate jwt
@@ -516,17 +535,6 @@ async function run() {
       }
     });
 
-
-    // GET all classes (public)
-    app.get('/classes', async (req, res) => {
-      try {
-        const classes = await classesCollection.find().toArray();
-        res.status(200).send(classes);
-      } catch (error) {
-        console.error('Failed to fetch classes:', error);
-        res.status(500).send({ message: 'Internal server error', error: error.message });
-      }
-    });
 
 
 
@@ -781,7 +789,7 @@ async function run() {
     app.post('/order', verifyJWT, async (req, res) => {
       try {
         const orderData = req.body;
-
+        
         // Fetch full trainer document
         const trainer = await trainersCollection.findOne({ _id: new ObjectId(orderData.trainerId) });
         if (!trainer) return res.status(404).send({ message: 'Trainer not found' });
