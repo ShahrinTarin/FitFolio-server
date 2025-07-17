@@ -93,6 +93,23 @@ async function run() {
 
 
 
+    app.get('/reviews', async (req, res) => {
+      try {
+        const reviews = await reviewsCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.status(200).send(reviews);
+      } catch (error) {
+        console.error('Error fetching reviews:', error);
+        res.status(500).send({ message: 'Internal Server Error' });
+      }
+    });
+
+
+
+
     // GET all classes (public)
     app.get('/classes', async (req, res) => {
       try {
@@ -158,8 +175,6 @@ async function run() {
     });
 
 
-
-
     // get a user's role
     app.get('/user/role/:email', async (req, res) => {
       const email = req.params.email
@@ -167,6 +182,23 @@ async function run() {
       if (!result) return res.status(404).send({ message: 'User Not Found.' })
       res.send({ role: result?.role })
     })
+
+
+
+    // GET /trainers/featured
+    app.get('/trainers/featured', async (req, res) => {
+      try {
+        const trainers = await trainersCollection
+          .find({ status: 'approved' })
+          .limit(3)
+          .toArray();
+        res.send(trainers);
+      } catch (error) {
+        console.error('Error fetching featured trainers:', error);
+        res.status(500).send({ message: 'Failed to fetch trainers' });
+      }
+    });
+
 
 
     // Route to get trainers by class name
@@ -229,6 +261,25 @@ async function run() {
 
 
 
+    //  Example Express route for featured classes
+    app.get('/classes/featured', async (req, res) => {
+      try {
+        const featuredClasses = await classesCollection
+          .find({})
+          .sort({ bookingCount: -1 })
+          .limit(6)
+          .toArray();
+
+        res.status(200).send(featuredClasses);
+      } catch (error) {
+        console.error('Error fetching featured classes:', error);
+        res.status(500).send({ message: 'Internal Server Error' });
+      }
+    });
+
+
+
+
 
 
     // Combined Activity Log: Pending (from trainerApplications) + Rejected (from trainers)
@@ -255,11 +306,12 @@ async function run() {
     });
 
 
-
-    app.get('/slots', async (req, res) => {
+    app.get('/slots/trainers/:email', async (req, res) => {
+      const trainerEmail = req.params.email;
       try {
-        const allSlots = await slotsCollection.find().toArray();
-        res.status(200).send(allSlots);
+        // Find slots with matching trainerEmail AND isBooked === false
+        const slots = await slotsCollection.find({ trainerEmail, isBooked: false }).toArray();
+        res.status(200).send(slots);
       } catch (error) {
         console.error('Failed to fetch slots:', error);
         res.status(500).send({ message: 'Internal Server Error', error: error.message });
@@ -637,6 +689,8 @@ async function run() {
         const review = {
           bookingId: new ObjectId(reviewData.bookingId),
           userEmail: reviewData.userEmail,
+          userphoto: reviewData.userphoto,
+          userName: reviewData.userName,
           rating: reviewData.rating,
           feedback: reviewData.feedback,
           createdAt: new Date().toISOString(),
@@ -789,7 +843,7 @@ async function run() {
     app.post('/order', verifyJWT, async (req, res) => {
       try {
         const orderData = req.body;
-        
+
         // Fetch full trainer document
         const trainer = await trainersCollection.findOne({ _id: new ObjectId(orderData.trainerId) });
         if (!trainer) return res.status(404).send({ message: 'Trainer not found' });
