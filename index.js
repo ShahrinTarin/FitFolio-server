@@ -54,7 +54,6 @@ async function run() {
     const classesCollection = client.db('fitFolio').collection('classes')
     const slotsCollection = client.db('fitFolio').collection('slots')
     const bookingsCollection = client.db('fitFolio').collection('bookings')
-    const ordersCollection = client.db('fitFolio').collection('orders')
     const forumsCollection = client.db('fitFolio').collection('forums')
     const reviewsCollection = client.db('fitFolio').collection('reviews')
     const newsletterSubscribersCollection = client.db('fitFolio').collection('newsletterSubscribers')
@@ -81,6 +80,74 @@ async function run() {
     }
 
 
+    app.get('/admin/booking-summary', async (req, res) => {
+      try {
+        const payments = await bookingsCollection.find().sort({ createdAt: -1 }).toArray();
+        const totalBalance = payments.reduce((sum, p) => sum + p.price, 0);
+        const lastSixTransactions = payments.slice(0, 6);
+        res.send({ totalBalance, lastSixTransactions });
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to load balance summary' });
+      }
+    });
+
+
+
+    // GET all newsletter subscribers (Admin only)
+    app.get('/newsletter/all', verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const subscribers = await newsletterSubscribersCollection.find().toArray();
+        res.status(200).send(subscribers);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Failed to fetch subscribers', error: err.message });
+      }
+    });
+
+
+    app.get('/admin/overview-counts', async (req, res) => {
+      try {
+        // Get subscriber count (optimized)
+        const subscriberCount = await newsletterSubscribersCollection.countDocuments({});
+
+        // Get unique paying members (using aggregation for better performance)
+        const memberCountResult = await bookingsCollection.aggregate([
+          {
+            $group: {
+              _id: "$userEmail",
+              count: { $sum: 1 } 
+            }
+          },
+          {
+            $count: "totalMembers" 
+          }
+        ]).toArray();
+
+        const memberCount = memberCountResult[0]?.totalMembers || 0;
+
+        res.send({
+          subscriberCount,
+          memberCount
+        });
+
+      } catch (error) {
+        console.error('Error in /admin/overview-counts:', {
+          message: error.message,
+          stack: error.stack,
+          timestamp: new Date().toISOString()
+        });
+
+        res.status(500).send({
+          success: false,
+          message: 'Failed to load statistics data',
+          error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+      }
+    });
+
+
+
+
     // get a user's role
     app.get('/user/role/:email', async (req, res) => {
       const email = req.params.email
@@ -88,6 +155,57 @@ async function run() {
       if (!result) return res.status(404).send({ message: 'User Not Found.' })
       res.send({ role: result?.role })
     })
+
+    // Route to get trainers by class name
+    app.get('/trainers-by-class/:className', async (req, res) => {
+      const className = req.params.className;
+
+      try {
+        const trainers = await trainersCollection
+          .find({
+            skills: className,
+            status: 'approved'
+          })
+          .project({
+            _id: 1,
+            fullName: 1,
+            profileImage: 1
+          })
+          .limit(5)
+          .toArray();
+
+        res.send(trainers);
+      } catch (error) {
+        console.error('Error fetching trainers by class:', error);
+        res.status(500).send({ message: 'Internal server error' });
+      }
+    });
+
+
+
+
+    // GET /classes?page=1&limit=6
+    app.get('/class', async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 6;
+        const skip = (page - 1) * limit;
+
+        const classes = await classesCollection.find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        // Optional: include total count
+        const total = await classesCollection.estimatedDocumentCount();
+
+        res.send({ classes, total });
+      } catch (err) {
+        res.status(500).send({ message: "Failed to load classes", error: err.message });
+      }
+    });
+
+
 
 
 
@@ -115,12 +233,26 @@ async function run() {
     });
 
 
+
     app.get('/slots', async (req, res) => {
       try {
         const allSlots = await slotsCollection.find().toArray();
         res.status(200).send(allSlots);
       } catch (error) {
         console.error('Failed to fetch slots:', error);
+        res.status(500).send({ message: 'Internal Server Error', error: error.message });
+      }
+    });
+
+
+    // Get bookings for a logged-in user
+    app.get('/bookings', verifyJWT, async (req, res) => {
+      try {
+        const userEmail = req.decoded.email;
+        const bookings = await bookingsCollection.find({ userEmail }).toArray();
+        res.status(200).send(bookings);
+      } catch (error) {
+        console.error('Failed to fetch bookings:', error);
         res.status(500).send({ message: 'Internal Server Error', error: error.message });
       }
     });
@@ -172,12 +304,13 @@ async function run() {
       }
     });
 
+
     app.get('/trainer/details/:email', verifyJWT, verifyTrainer, async (req, res) => {
       const email = req.params.email;
       try {
         const trainer = await trainersCollection.findOne({ email });
-        res.send(trainer);
         if (!trainer) return res.status(404).send({ message: 'Trainer not found' });
+        res.send(trainer);
       } catch (error) {
         res.status(500).send({ message: 'Error fetching trainer', error: error.message });
       }
@@ -193,19 +326,6 @@ async function run() {
         res.status(200).send(trainers);
       } catch (err) {
         res.status(500).send({ message: 'Failed to fetch trainers', error: err.message });
-      }
-    });
-
-
-
-    // GET all newsletter subscribers (Admin only)
-    app.get('/newsletter/all', verifyJWT, verifyAdmin, async (req, res) => {
-      try {
-        const subscribers = await newsletterSubscribersCollection.find().toArray();
-        res.status(200).send(subscribers);
-      } catch (err) {
-        console.error(err);
-        res.status(500).send({ message: 'Failed to fetch subscribers', error: err.message });
       }
     });
 
@@ -495,6 +615,41 @@ async function run() {
     });
 
 
+    // POST a new review
+    app.post('/reviews', verifyJWT, async (req, res) => {
+      try {
+        const reviewData = req.body;
+
+        // Validate required fields
+        if (!reviewData.bookingId || !reviewData.userEmail || !reviewData.rating || !reviewData.feedback) {
+          return res.status(400).send({ message: 'Missing required review fields' });
+        }
+
+
+        const review = {
+          bookingId: new ObjectId(reviewData.bookingId),
+          userEmail: reviewData.userEmail,
+          rating: reviewData.rating,
+          feedback: reviewData.feedback,
+          createdAt: new Date().toISOString(),
+          additionalFields: reviewData.additionalFields || {},
+        };
+
+        const result = await reviewsCollection.insertOne(review);
+
+        if (result.insertedId) {
+          res.status(201).send({ message: 'Review submitted successfully', insertedId: result.insertedId });
+        } else {
+          res.status(500).send({ message: 'Failed to submit review' });
+        }
+      } catch (error) {
+        console.error('Error submitting review:', error);
+        res.status(500).send({ message: 'Internal Server Error', error: error.message });
+      }
+    });
+
+
+
     app.post('/add-slot', verifyJWT, verifyTrainer, async (req, res) => {
       try {
         const { email, slotName, slotTime, days, classId, otherInfo } = req.body;
@@ -606,21 +761,61 @@ async function run() {
     })
 
 
+    app.post('/check-slot-availability', verifyJWT, async (req, res) => {
+      const { slotId } = req.body;
+      try {
+        const slot = await slotsCollection.findOne({ _id: new ObjectId(slotId) });
+        if (!slot) return res.status(404).send({ message: 'Slot not found' });
+        if (slot.isBooked) {
+          return res.status(200).send({ available: false });
+        }
+        res.send({ available: true });
+      } catch (err) {
+        console.error('Error checking slot availability:', err);
+        res.status(500).send({ message: 'Error checking slot availability' });
+      }
+    });
 
-    app.post('/order', async (req, res) => {
+
+
+    app.post('/order', verifyJWT, async (req, res) => {
       try {
         const orderData = req.body;
 
-        // Insert into orders collection
-        const result = await ordersCollection.insertOne(orderData);
+        // Fetch full trainer document
+        const trainer = await trainersCollection.findOne({ _id: new ObjectId(orderData.trainerId) });
+        if (!trainer) return res.status(404).send({ message: 'Trainer not found' });
 
-        //  Update bookingCount in class
+        // Fetch full class document
+        const classData = await classesCollection.findOne({ _id: new ObjectId(orderData.classId) });
+        if (!classData) return res.status(404).send({ message: 'Class not found' });
+
+        // Fetch full slot document
+        const slot = await slotsCollection.findOne({ _id: new ObjectId(orderData.slotId) });
+        if (!slot) return res.status(404).send({ message: 'Slot not found' });
+
+        // Compose booking document with full details embedded
+        const bookingDoc = {
+          transactionId: orderData.transactionId,
+          userEmail: orderData.userEmail,
+          paidAt: orderData.paidAt,
+          trainer,
+          class: classData,
+          slot,
+          price: orderData.price,
+          createdAt: new Date().toISOString(),
+        };
+
+        // Insert booking document
+        const result = await bookingsCollection.insertOne(bookingDoc);
+
+        // Update bookingCount in class
         const classUpdate = await classesCollection.updateOne(
           { _id: new ObjectId(orderData.classId) },
           { $inc: { bookingCount: 1 } }
         );
 
-        //  Mark the slot as booked
+        // Mark slot as booked
         const slotUpdate = await slotsCollection.updateOne(
           { _id: new ObjectId(orderData.slotId) },
           {
@@ -629,9 +824,9 @@ async function run() {
               bookedBy: {
                 email: orderData.userEmail,
                 transactionId: orderData.transactionId,
-                paidAt: orderData.paidAt
-              }
-            }
+                paidAt: orderData.paidAt,
+              },
+            },
           }
         );
 
@@ -639,7 +834,7 @@ async function run() {
           insertedId: result.insertedId,
           classUpdate,
           slotUpdate,
-          message: 'Order placed and class/slot updated successfully'
+          message: 'Order placed and class/slot updated successfully',
         });
       } catch (error) {
         console.error('Error placing order:', error);
@@ -649,11 +844,39 @@ async function run() {
 
 
 
-    app.delete('/slot/:id', async (req, res) => {
-      const id = req.params.id;
-      const result = await slotsCollection.deleteOne({ _id: new ObjectId(id) });
-      res.send(result);
+
+    app.delete('/slot/:id', verifyJWT, verifyTrainer, async (req, res) => {
+      try {
+        const slotId = req.params.id;
+        const trainerEmail = req.decoded.email;
+
+        const slot = await slotsCollection.findOne({ _id: new ObjectId(slotId) });
+
+        if (!slot) {
+          return res.status(404).send({ message: 'Slot not found' });
+        }
+
+        if (slot.trainerEmail !== trainerEmail) {
+          return res.status(403).send({ message: 'Forbidden: You can only delete your own slots' });
+        }
+
+        if (slot.isBooked) {
+          return res.status(400).send({ message: 'Cannot delete a booked slot' });
+        }
+
+        const result = await slotsCollection.deleteOne({ _id: new ObjectId(slotId) });
+
+        if (result.deletedCount === 1) {
+          res.status(200).send({ message: 'Slot deleted successfully' });
+        } else {
+          res.status(500).send({ message: 'Failed to delete slot' });
+        }
+      } catch (error) {
+        console.error('Error deleting slot:', error);
+        res.status(500).send({ message: 'Internal server error', error: error.message });
+      }
     });
+
 
 
 
