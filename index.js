@@ -9,7 +9,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  origin: ['http://localhost:5173', 'http://localhost:5175'],
   credentials: true,
   optionSuccessStatus: 200,
 }));
@@ -440,6 +440,25 @@ async function run() {
     });
 
 
+    // Get single forum post by ID
+    app.get('/forums/:id',verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const post = await forumsCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!post) {
+          return res.status(404).send({ message: 'Forum post not found' });
+        }
+
+        res.status(200).send(post);
+      } catch (error) {
+        console.error('Error fetching forum post:', error);
+        res.status(500).send({ message: 'Internal Server Error' });
+      }
+    });
+
+
+
 
     // Pagination GET /forums now
     app.get('/forums', async (req, res) => {
@@ -458,14 +477,14 @@ async function run() {
               as: 'authorInfo'
             }
           },
-          { $unwind: { path: '$authorInfo'} },
+          { $unwind: { path: '$authorInfo' } },
           {
             $addFields: {
               authorRole: '$authorInfo.role'
             }
           },
           {
-            $project: { authorInfo: 0 } 
+            $project: { authorInfo: 0 }
           },
           { $sort: { createdAt: -1 } },
           { $skip: skip },
