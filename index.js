@@ -80,6 +80,44 @@ async function run() {
     }
 
 
+    const verifyAdminOrTrainer = async (req, res, next) => {
+      const email = req.decoded.email;
+      const user = await usersCollection.findOne({ email });
+      if (!user || (user.role !== 'admin' && user.role !== 'trainer')) {
+        return res.status(403).send({ message: 'Forbidden access' });
+      }
+      next();
+    };
+
+
+
+    app.get('/forums/latest', async (req, res) => {
+      try {
+        const latestPosts = await forumsCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .limit(6)
+          .project({
+            _id: 1,
+            title: 1,
+            image: 1,
+            category: 1,
+            description: 1,
+            createdAt: 1
+          })
+          .toArray();
+
+        res.status(200).json(latestPosts);
+      } catch (error) {
+        console.error('Error fetching latest forum posts:', error);
+        res.status(500).json({ message: 'Failed to fetch latest forum posts' });
+      }
+    });
+
+
+
+
+
     app.get('/admin/booking-summary', verifyJWT, verifyAdmin, async (req, res) => {
       try {
         const payments = await bookingsCollection.find().sort({ createdAt: -1 }).toArray();
@@ -402,6 +440,132 @@ async function run() {
     });
 
 
+
+    // Pagination GET /forums now
+    app.get('/forums', async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = 6;
+        const skip = (page - 1) * limit;
+
+        // Aggregate to join user role info by authorEmail
+        const forumsCursor = forumsCollection.aggregate([
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'authorEmail',
+              foreignField: 'email',
+              as: 'authorInfo'
+            }
+          },
+          { $unwind: { path: '$authorInfo'} },
+          {
+            $addFields: {
+              authorRole: '$authorInfo.role'
+            }
+          },
+          {
+            $project: { authorInfo: 0 } 
+          },
+          { $sort: { createdAt: -1 } },
+          { $skip: skip },
+          { $limit: limit }
+        ]);
+
+        const posts = await forumsCursor.toArray();
+        const totalPosts = await forumsCollection.countDocuments();
+
+        res.status(200).send({
+          posts,
+          pagination: {
+            page,
+            pages: Math.ceil(totalPosts / limit),
+            total: totalPosts,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to fetch forums:', error);
+        res.status(500).send({ message: 'Failed to fetch forum posts' });
+      }
+    });
+
+
+
+    // Vote POST /forums/:id/vote now 
+    app.post('/forums/:id/vote', verifyJWT, async (req, res) => {
+      try {
+        const forumId = req.params.id;
+        const userEmail = req.decoded.email;
+        const vote = req.body.vote;
+
+        if (![1, -1].includes(vote)) {
+          return res.status(400).send({ message: 'Vote must be 1 or -1' });
+        }
+
+        const forumPost = await forumsCollection.findOne({ _id: new ObjectId(forumId) });
+        if (!forumPost) {
+          return res.status(404).send({ message: 'Forum post not found' });
+        }
+
+        // Find author user info to check role
+        const authorEmail = forumPost.authorEmail;
+        const authorUser = await usersCollection.findOne({ email: authorEmail });
+
+        if (!authorUser) {
+          return res.status(404).send({ message: 'Author user not found' });
+        }
+
+
+        const currentVotes = forumPost.votes || { up: 0, down: 0, voters: {} };
+
+        const prevVote = currentVotes.voters ? currentVotes.voters[userEmail] : undefined;
+
+        if (prevVote === vote) {
+          return res.status(400).send({ message: 'You already voted this way' });
+        }
+
+        // Calculate increments
+        let upInc = 0;
+        let downInc = 0;
+
+        if (prevVote === undefined) {
+          // New vote
+          if (vote === 1) upInc = 1;
+          else downInc = 1;
+        } else {
+          // User changed vote, adjust counts accordingly
+          if (vote === 1) {
+            upInc = 1;
+            downInc = -1;
+          } else {
+            upInc = -1;
+            downInc = 1;
+          }
+        }
+
+        // Update voters map
+        const voters = { ...currentVotes.voters, [userEmail]: vote };
+
+        // Update in DB
+        await forumsCollection.updateOne(
+          { _id: new ObjectId(forumId) },
+          {
+            $set: { 'votes.voters': voters },
+            $inc: { 'votes.up': upInc, 'votes.down': downInc }
+          }
+        );
+
+        res.status(200).send({ message: 'Vote recorded' });
+
+      } catch (error) {
+        console.error('Voting error:', error);
+        res.status(500).send({ message: 'Failed to record vote' });
+      }
+    });
+
+
+
+
     // generate jwt
     app.post('/jwt', (req, res) => {
       const user = { email: req.body.email }
@@ -556,6 +720,39 @@ async function run() {
 
 
 
+
+
+    app.post('/forums', verifyJWT, verifyAdminOrTrainer, async (req, res) => {
+      try {
+        const { title, image, category, description, createdAt } = req.body;
+
+        // validation
+        if (!title || !description || !category) {
+          return res.status(400).send({ message: 'Title, category, and description are required.' });
+        }
+
+        const newForumPost = {
+          title: title.trim(),
+          image: image?.trim() || '',
+          category,
+          description: description.trim(),
+          createdAt: createdAt || new Date().toISOString(),
+          votes: { up: 0, down: 0 },
+          authorEmail: req.decoded.email || null,
+        };
+
+        const result = await forumsCollection.insertOne(newForumPost);
+
+        res.status(201).send({ message: 'Forum post added successfully', postId: result.insertedId });
+      } catch (err) {
+        console.error('Failed to add forum post:', err);
+        res.status(500).send({ message: 'Failed to add forum post', error: err.message });
+      }
+    });
+
+
+
+
     // POST /classes - Add a new class (Admin only)
     app.post('/classes', verifyJWT, verifyAdmin, async (req, res) => {
       try {
@@ -643,6 +840,11 @@ async function run() {
         res.status(500).send({ message: 'Failed to approve', error: err.message });
       }
     });
+
+
+
+
+
 
 
 
