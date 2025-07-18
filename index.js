@@ -9,7 +9,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5175'],
+  origin: ['https://fitfolio-by-shahrin.web.app'],
   credentials: true,
   optionSuccessStatus: 200,
 }));

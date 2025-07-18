@@ -1,4 +1,4 @@
-# 🏋️‍♂️ FitFolio – Your Ultimate Fitness Companion 💪
+# 🏋️‍♂️ FitFolio 💪
 
 ## 🎯 Purpose
 
@@ -6,7 +6,7 @@
 
 ## 🌐 Live Site
 
-[https://fitfolio-by-tarin.web.app](https://fitfolio-by-tarin.web.app)
+[https://fitfolio-by-shahrin.web.app/](https://fitfolio-by-shahrin.web.app/)
 
 ---
 
