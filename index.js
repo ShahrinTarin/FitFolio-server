@@ -223,7 +223,6 @@ async function run() {
 
 
 
-    // GET /trainers/featured
     app.get('/trainers/featured', async (req, res) => {
       try {
         const trainers = await trainersCollection
