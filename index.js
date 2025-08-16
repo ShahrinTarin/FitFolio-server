@@ -177,7 +177,7 @@ async function run() {
         // Get subscriber count (optimized)
         const subscriberCount = await newsletterSubscribersCollection.countDocuments({});
 
-      
+        // Get unique paying members (using aggregation for better performance)
         const memberCountResult = await bookingsCollection.aggregate([
           {
             $group: {
