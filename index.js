@@ -239,7 +239,7 @@ async function run() {
 
 
 
-    // Route to get trainers by class name
+  
     app.get('/trainers-by-class/:className', async (req, res) => {
       const className = req.params.className;
 
@@ -263,7 +263,7 @@ async function run() {
         res.status(500).send({ message: 'Internal server error' });
       }
     });
-    
+
 
     // GET /class?page=1&limit=6&search=keyword&sort=asc|desc
     app.get('/class', async (req, res) => {
