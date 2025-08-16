@@ -266,27 +266,32 @@ async function run() {
 
 
 
-    // GET /class?page=1&limit=6&search=keyword
+    // GET /class?page=1&limit=6&search=keyword&sort=asc|desc
     app.get('/class', async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 6;
         const skip = (page - 1) * limit;
         const search = req.query.search || '';
+        const sort = req.query.sort || ''; // asc | desc
 
         // Build query object
         let query = {};
         if (search) {
-          query = {
-            name: { $regex: search, $options: 'i' }
-          };
+          query = { name: { $regex: search, $options: 'i' } };
         }
 
-        // Get total count for pagination
+        // Build sort object
+        let sortQuery = {};
+        if (sort === 'asc') sortQuery = { bookingCount: 1 };
+        if (sort === 'desc') sortQuery = { bookingCount: -1 };
+
+        // Get total count
         const total = await classesCollection.countDocuments(query);
 
-        // Get filtered and paginated classes
+        // Get classes
         const classes = await classesCollection.find(query)
+          .sort(sortQuery)   // apply sorting
           .skip(skip)
           .limit(limit)
           .toArray();
@@ -296,6 +301,7 @@ async function run() {
         res.status(500).send({ message: "Failed to load classes", error: err.message });
       }
     });
+
 
 
 
@@ -441,7 +447,7 @@ async function run() {
 
 
     // Get single forum post by ID
-    app.get('/forums/:id',verifyJWT, async (req, res) => {
+    app.get('/forums/:id', verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
         const post = await forumsCollection.findOne({ _id: new ObjectId(id) });
