@@ -266,7 +266,6 @@ async function run() {
 
 
 
-    // GET /class?page=1&limit=6&search=keyword&sort=asc|desc
     app.get('/class', async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
