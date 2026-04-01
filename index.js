@@ -145,8 +145,8 @@ async function run() {
           .toArray();
 
         res.status(200).send(reviews);
-      } catch (error) {
-        console.error('Error fetching reviews:', error);
+      } catch (err) {
+        logger.error('Error fetching reviews:', err);
         res.status(500).send({ message: 'Internal Server Error' });
       }
     });
@@ -676,13 +676,13 @@ async function run() {
             .send({ message: 'User already exists', user: existingUser });
         }
 
-        const result = await usersCollection.insertOne(newUser);
+        await usersCollection.insertOne(newUser);
         res.status(201).send({ message: 'User registered', user: newUser });
-      } catch (error) {
-        console.error('Registration Error:', error);
+      } catch (err) {
+        logger.error('Registration Error:', err);
         res
           .status(500)
-          .send({ message: 'Registration error', error: error.message });
+          .send({ message: 'Registration error', error: err.message });
       }
     });
 
