@@ -5,6 +5,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SK_KEY);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const promClient = require('prom-client');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -18,10 +19,50 @@ app.use(
 );
 app.use(express.json());
 
-// Request logger middleware
+// Prometheus Metrics Setup
+const register = new promClient.Registry();
+promClient.collectDefaultMetrics({ register });
+
+const httpRequestDurationMicroseconds = new promClient.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in microseconds',
+  labelNames: ['method', 'route', 'code'],
+  buckets: [0.1, 0.3, 0.5, 0.7, 1, 3, 5, 7, 10],
+});
+register.registerMetric(httpRequestDurationMicroseconds);
+
+// Request logger & metrics middleware
 app.use((req, res, next) => {
+  const end = httpRequestDurationMicroseconds.startTimer();
+  res.on('finish', () => {
+    end({
+      method: req.method,
+      route: req.route ? req.route.path : req.url,
+      code: res.statusCode,
+    });
+  });
   logger.info(`${req.method} ${req.url}`);
   next();
+});
+
+// Health Checks
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'UP', timestamp: new Date().toISOString() });
+});
+
+app.get('/ready', async (req, res) => {
+  try {
+    await client.db('admin').command({ ping: 1 });
+    res.status(200).json({ status: 'READY', database: 'CONNECTED' });
+  } catch (err) {
+    logger.error('Database Connection Error:', err);
+    res.status(503).json({ status: 'NOT_READY', database: 'DISCONNECTED' });
+  }
+});
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
 
 const uri =

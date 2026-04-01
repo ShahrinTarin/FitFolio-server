@@ -1,20 +1,41 @@
-# Dockerfile
-FROM node:20-alpine
+# Build stage
+FROM node:20-alpine AS builder
 
-# Working directory
 WORKDIR /app
 
-# Copy package.json and lock file
+# Copy dependency manifests
 COPY package*.json ./
 
-# Install only production dependencies
-RUN npm install --omit=dev
+# Install all dependencies (including devDeps for build if needed)
+RUN npm install
 
-# Copy project files
+# Copy source code
 COPY . .
 
-# Expore the port
+# Future-proof: Build step (e.g., for TS or Bundling)
+# RUN npm run build
+
+# Runtime stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Set environment to production
+ENV NODE_ENV=production
+
+# Copy only production dependencies from builder
+COPY --from=builder /app/package*.json ./
+RUN npm install --omit=dev
+
+# Copy source code from builder
+COPY --from=builder /app .
+
+# Create logs directory and set permissions
+RUN mkdir -p logs && chown node:node logs
+
+# Use non-root user for security
+USER node
+
 EXPOSE 3000
 
-# Start server
 CMD ["npm", "start"]
