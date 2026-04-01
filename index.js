@@ -132,6 +132,7 @@ async function run() {
           const lastSixTransactions = payments.slice(0, 6);
           res.send({ totalBalance, lastSixTransactions });
         } catch (error) {
+          logger.error('Error fetching balance summary:', error);
           res.status(500).send({ message: 'Failed to load balance summary' });
         }
       }
@@ -359,12 +360,10 @@ async function run() {
           res.status(200).send(combined);
         } catch (error) {
           console.error('Error fetching activity log:', error);
-          res
-            .status(500)
-            .send({
-              message: 'Failed to fetch activity log',
-              error: error.message,
-            });
+          res.status(500).send({
+            message: 'Failed to fetch activity log',
+            error: error.message,
+          });
         }
       }
     );
@@ -816,11 +815,9 @@ async function run() {
 
         // validation
         if (!title || !description || !category) {
-          return res
-            .status(400)
-            .send({
-              message: 'Title, category, and description are required.',
-            });
+          return res.status(400).send({
+            message: 'Title, category, and description are required.',
+          });
         }
 
         const newForumPost = {
@@ -835,12 +832,10 @@ async function run() {
 
         const result = await forumsCollection.insertOne(newForumPost);
 
-        res
-          .status(201)
-          .send({
-            message: 'Forum post added successfully',
-            postId: result.insertedId,
-          });
+        res.status(201).send({
+          message: 'Forum post added successfully',
+          postId: result.insertedId,
+        });
       } catch (err) {
         console.error('Failed to add forum post:', err);
         res
@@ -872,12 +867,10 @@ async function run() {
         const result = await classesCollection.insertOne(newClass);
 
         if (result.insertedId) {
-          res
-            .status(201)
-            .json({
-              message: 'Class created successfully',
-              insertedId: result.insertedId,
-            });
+          res.status(201).json({
+            message: 'Class created successfully',
+            insertedId: result.insertedId,
+          });
         } else {
           res.status(500).json({ message: 'Failed to create class' });
         }
@@ -994,12 +987,10 @@ async function run() {
             .send({ message: 'Application rejected successfully', result });
         } catch (err) {
           console.error('Reject Error:', err);
-          res
-            .status(500)
-            .send({
-              message: 'Failed to reject application',
-              error: err.message,
-            });
+          res.status(500).send({
+            message: 'Failed to reject application',
+            error: err.message,
+          });
         }
       }
     );
@@ -1035,12 +1026,10 @@ async function run() {
         const result = await reviewsCollection.insertOne(review);
 
         if (result.insertedId) {
-          res
-            .status(201)
-            .send({
-              message: 'Review submitted successfully',
-              insertedId: result.insertedId,
-            });
+          res.status(201).send({
+            message: 'Review submitted successfully',
+            insertedId: result.insertedId,
+          });
         } else {
           res.status(500).send({ message: 'Failed to submit review' });
         }
@@ -1105,12 +1094,10 @@ async function run() {
             }
           );
 
-          res
-            .status(201)
-            .send({
-              message: 'Slot added successfully',
-              insertedId: result.insertedId,
-            });
+          res.status(201).send({
+            message: 'Slot added successfully',
+            insertedId: result.insertedId,
+          });
         } else {
           res.status(500).send({ message: 'Failed to add slot' });
         }

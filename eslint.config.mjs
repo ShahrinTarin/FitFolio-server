@@ -1,32 +1,29 @@
-import js from "@eslint/js";
-import nPlugin from "eslint-plugin-n";
-import prettierPlugin from "eslint-config-prettier";
-import globals from "globals";
-
+// eslint.config.mjs
 export default [
-  js.configs.recommended,
-  nPlugin.configs["flat/recommended-script"],
   {
-    files: ["**/*.mjs"],
-    languageOptions: {
-      sourceType: "module",
-    },
-  },
-  {
-    files: ["**/*.js"],
+    files: ['**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: "commonjs",
+      sourceType: 'commonjs',
       globals: {
-        ...globals.node,
-        process: "readonly",
-        __dirname: "readonly",
+        // Manually defining Node.js globals for Minimalism
+        process: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        require: 'readonly',
+        module: 'readonly',
+        exports: 'writable',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
       },
     },
     rules: {
-      "no-console": "warn",
-      "n/no-unsupported-features/es-syntax": "off",
+      'no-console': 'warn',
+      'no-unused-vars': 'error',
+      'no-undef': 'error',
     },
   },
-  prettierPlugin,
 ];
